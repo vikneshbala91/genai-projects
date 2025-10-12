@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fact-Check Sidekick</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🔍 Fact-Check Sidekick</h1>
+            <p>Singapore Newsroom AI Assistant</p>
+        </header>
+
+        <div class="chat-container">
+            <div id="chat-messages" class="chat-messages">
+                <div class="message bot-message">
+                    <div class="message-content">
+                        <strong>Fact-Check Sidekick:</strong><br>
+                        Hello! I'm here to help you verify claims and fact-check information.
+                        Share a claim or statement, and I'll search for evidence and provide you with a verdict backed by credible sources.
+                    </div>
+                </div>
+            </div>
+
+            <div class="input-container">
+                <textarea
+                    id="user-input"
+                    placeholder="Enter a claim to fact-check (e.g., 'Singapore will ban petrol cars by 2025')..."
+                    rows="3"
+                ></textarea>
+                <div class="button-group">
+                    <button id="send-button" onclick="sendMessage()">Send</button>
+                    <button id="clear-button" onclick="clearChat()">Clear Chat</button>
+                </div>
+            </div>
+        </div>
+
+        <div id="loading" class="loading" style="display: none;">
+            <div class="spinner"></div>
+            <span>Checking facts and searching sources...</span>
+        </div>
+    </div>
+
+    <script>
+        const sessionId = 'session_' + Date.now();
+
+        // Send message on Enter (Shift+Enter for new line)
+        document.getElementById('user-input').addEventListener('keydown', function(e) {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                sendMessage();
+            }
+        });
+
+        function sendMessage() {
+            const input = document.getElementById('user-input');
+            const message = input.value.trim();
+
+            if (!message) return;
+
+            // Display user message
+            addMessage(message, 'user');
+            input.value = '';
+
+            // Show loading indicator
+            document.getElementById('loading').style.display = 'flex';
+            document.getElementById('send-button').disabled = true;
+
+            // Send to backend
+            fetch('/chat', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    message: message,
+                    session_id: sessionId
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                document.getElementById('loading').style.display = 'none';
+                document.getElementById('send-button').disabled = false;
+
+                if (data.status === 'success') {
+                    addMessage(data.response, 'bot');
+                } else {
+                    addMessage('Error: ' + (data.error || 'Unknown error occurred'), 'error');
+                }
+            })
+            .catch(error => {
+                document.getElementById('loading').style.display = 'none';
+                document.getElementById('send-button').disabled = false;
+                addMessage('Error: ' + error.message, 'error');
+            });
+        }
+
+        function addMessage(text, type) {
+            const messagesContainer = document.getElementById('chat-messages');
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${type}-message`;
+
+            const contentDiv = document.createElement('div');
+            contentDiv.className = 'message-content';
+
+            if (type === 'user') {
+                contentDiv.innerHTML = `<strong>You:</strong><br>${escapeHtml(text)}`;
+            } else if (type === 'bot') {
+                contentDiv.innerHTML = `<strong>Fact-Check Sidekick:</strong><br>${formatBotResponse(text)}`;
+            } else if (type === 'error') {
+                contentDiv.innerHTML = `<strong>Error:</strong><br>${escapeHtml(text)}`;
+            }
+
+            messageDiv.appendChild(contentDiv);
+            messagesContainer.appendChild(messageDiv);
+            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        }
+
+        function formatBotResponse(text) {
+            // Convert URLs to clickable links
+            text = text.replace(/(https?:\/\/[^\s]+)/g, '<a href="$1" target="_blank">$1</a>');
+
+            // Preserve line breaks
+            text = text.replace(/\n/g, '<br>');
+
+            return text;
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML.replace(/\n/g, '<br>');
+        }
+
+        function clearChat() {
+            if (!confirm('Are you sure you want to clear the chat history?')) {
+                return;
+            }
+
+            fetch('/clear', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    session_id: sessionId
+                })
+            })
+            .then(() => {
+                const messagesContainer = document.getElementById('chat-messages');
+                messagesContainer.innerHTML = `
+                    <div class="message bot-message">
+                        <div class="message-content">
+                            <strong>Fact-Check Sidekick:</strong><br>
+                            Chat history cleared. How can I help you verify claims today?
+                        </div>
+                    </div>
+                `;
+            })
+            .catch(error => {
+                console.error('Error clearing chat:', error);
+            });
+        }
+    </script>
+</body>
+</html>

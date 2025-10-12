@@ -3,7 +3,12 @@
     "allow": [
       "Bash(chmod:*)",
       "Bash(tree:*)",
-      "Bash(pip install:*)"
+      "Bash(pip install:*)",
+      "Bash(python:*)",
+      "Bash(az:*)",
+      "Bash(cat:*)",
+      "Bash(env)",
+      "Bash(timeout 60 python azure_agent.py)"
     ],
     "deny": [],
     "ask": []
