@@ -1,0 +1,61 @@
+# Example Schema Configuration
+# Update this file with your actual Trino database schema
+
+database: your_catalog.your_schema
+
+tables:
+  - name: customers
+    description: Customer information table
+    columns:
+      - name: customer_id
+        type: bigint
+        description: Unique customer identifier
+      - name: name
+        type: varchar
+        description: Customer full name
+      - name: email
+        type: varchar
+        description: Customer email address
+      - name: created_at
+        type: timestamp
+        description: Account creation date
+
+  - name: orders
+    description: Order transactions table
+    columns:
+      - name: order_id
+        type: bigint
+        description: Unique order identifier
+      - name: customer_id
+        type: bigint
+        description: Foreign key to customers table
+      - name: order_date
+        type: date
+        description: Date when order was placed
+      - name: total_amount
+        type: decimal(10,2)
+        description: Total order amount in dollars
+      - name: status
+        type: varchar
+        description: Order status (pending, completed, cancelled)
+
+  - name: products
+    description: Product catalog table
+    columns:
+      - name: product_id
+        type: bigint
+        description: Unique product identifier
+      - name: name
+        type: varchar
+        description: Product name
+      - name: category
+        type: varchar
+        description: Product category
+      - name: price
+        type: decimal(10,2)
+        description: Product price in dollars
+
+relationships:
+  - from: orders.customer_id
+    to: customers.customer_id
+    description: Each order belongs to one customer
