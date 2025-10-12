@@ -1,6 +1,7 @@
 # 02_tools.py
 from langchain.tools import tool
 import requests, bs4
+from ddgs import DDGS
 
 # -------- Web Search (DuckDuckGo) --------
 @tool("web_search", return_direct=False)
@@ -8,21 +9,23 @@ def web_search(query: str, k: int = 5):
     """
     Search the web using DuckDuckGo (no API key required).
     Returns a list of {title, url, snippet}.
+    Use this to find information about claims, facts, and current events.
     """
-    url = "https://duckduckgo.com/html/"
-    params = {"q": query}
-    headers = {"User-Agent": "Mozilla/5.0"}
-    res = requests.post(url, data=params, headers=headers, timeout=10)
-    soup = bs4.BeautifulSoup(res.text, "html.parser")
-
-    results = []
-    for a in soup.select(".result__a")[:k]:
-        link = a.get("href")
-        title = a.text
-        snippet_tag = a.find_parent("div", class_="result__body").select_one(".result__snippet")
-        snippet = snippet_tag.text if snippet_tag else ""
-        results.append({"title": title, "url": link, "snippet": snippet})
-    return results
+    try:
+        # Use duckduckgo_search library which is more reliable
+        with DDGS() as ddgs:
+            results = []
+            # Get text results
+            for r in ddgs.text(query, max_results=k):
+                results.append({
+                    "title": r.get("title", ""),
+                    "url": r.get("href", ""),
+                    "snippet": r.get("body", "")
+                })
+            return results
+    except Exception as e:
+        # Fallback to empty results with error info
+        return [{"title": "Search Error", "url": "", "snippet": f"Error performing search: {str(e)}"}]
 
 
 # -------- Read URL Tool --------

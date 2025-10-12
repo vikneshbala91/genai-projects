@@ -9,6 +9,6 @@ beautifulsoup4==4.12.3
 chromadb==0.6.3
 tiktoken==0.8.0
 python-dotenv==1.0.1
-duckduckgo-search==2.6.1
+ddgs==9.6.0
 openai==1.109.1
 flask==3.0.0

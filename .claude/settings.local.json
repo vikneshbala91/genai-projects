@@ -8,7 +8,11 @@
       "Bash(az:*)",
       "Bash(cat:*)",
       "Bash(env)",
-      "Bash(timeout 60 python azure_agent.py)"
+      "Bash(timeout 60 python azure_agent.py)",
+      "Bash(lsof:*)",
+      "Bash(kill:*)",
+      "Bash(pip uninstall:*)",
+      "Bash(killall:*)"
     ],
     "deny": [],
     "ask": []

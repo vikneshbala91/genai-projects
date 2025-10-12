@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Flask app for Fact-Check Sidekick chatbot"""
 import os
+import sys
 import logging
 from pathlib import Path
 from flask import Flask, render_template, request, jsonify, stream_with_context, Response
@@ -9,6 +10,11 @@ from langchain_openai import AzureChatOpenAI
 from langchain.agents import AgentExecutor, create_openai_tools_agent
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain.callbacks.base import BaseCallbackHandler
+
+# Add the src directory to Python path so imports work from any directory
+src_dir = Path(__file__).parent.resolve()
+if str(src_dir) not in sys.path:
+    sys.path.insert(0, str(src_dir))
 
 # Configure logging
 logging.basicConfig(
@@ -24,11 +30,14 @@ for key in list(os.environ.keys()):
         del os.environ[key]
 
 # Now load from .env file
-project_root = Path(__file__).parent.parent.parent
+project_root = src_dir.parent.parent
 env_path = project_root / ".env"
 load_dotenv(dotenv_path=env_path)
 
-# Import tools
+logger.info(f"Loading .env from: {env_path}")
+logger.info(f"Flask templates will be loaded from: {src_dir / 'templates'}")
+
+# Import tools (now that src_dir is in sys.path)
 from tools import web_search, read_url
 
 
@@ -67,7 +76,12 @@ class ToolLoggingCallback(BaseCallbackHandler):
         # BREAKPOINT HERE: Set breakpoint on this line to see agent decisions
 
 
-app = Flask(__name__)
+# Initialize Flask with explicit template and static folder paths
+app = Flask(
+    __name__,
+    template_folder=str(src_dir / 'templates'),
+    static_folder=str(src_dir / 'static')
+)
 
 # Initialize LLM and Agent
 llm = AzureChatOpenAI(
@@ -183,4 +197,6 @@ def clear_history():
 
 
 if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0', port=9000)
+    # Disable reloader to avoid "No module named app" errors
+    # The reloader has issues when running from different directories
+    app.run(debug=True, host='0.0.0.0', port=9000, use_reloader=False)
