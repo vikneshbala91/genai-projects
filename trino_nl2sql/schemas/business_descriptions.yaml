@@ -1,0 +1,39 @@
+# Business Context for Trino Tables
+# This file provides business descriptions and context for your database tables and columns
+# The actual schema (tables, columns, data types) is fetched dynamically from Trino
+# Only add entries here for tables/columns that need additional business context
+
+# Note: You don't need to specify 'database' - it comes from TRINO_CATALOG.TRINO_SCHEMA in .env
+
+tables:
+  # Example: Add business descriptions for your tables
+  # - name: your_table_name
+  #   description: Business description of what this table represents
+  #   columns:
+  #     - name: column_name
+  #       description: Business meaning of this column (e.g., "User's primary email for login")
+
+  # You can add descriptions for specific columns you want to clarify
+  # - name: transactions
+  #   description: Contains all financial transactions processed by the system
+  #   columns:
+  #     - name: amount
+  #       description: Transaction amount in USD. Positive for credits, negative for debits.
+  #     - name: status
+  #       description: Transaction status - possible values are 'pending', 'completed', 'failed', 'refunded'
+
+# Relationships help the LLM understand how tables are connected
+relationships: []
+  # Example relationships:
+  # - from: orders.customer_id
+  #   to: customers.customer_id
+  #   description: Each order belongs to one customer
+  # - from: order_items.order_id
+  #   to: orders.order_id
+  #   description: Each order can have multiple items
+
+# Additional business rules or context (optional)
+# business_rules:
+#   - "All amounts are stored in cents (integer) but should be displayed as dollars"
+#   - "Deleted records are soft-deleted with is_deleted=true flag"
+#   - "All timestamps are in UTC"

@@ -1,7 +1,7 @@
 # Example Schema Configuration
 # Update this file with your actual Trino database schema
 
-database: your_catalog.your_schema
+database: hive.reco_prod
 
 tables:
   - name: customers

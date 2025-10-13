@@ -16,12 +16,19 @@ logger = logging.getLogger(__name__)
 class SQLGenerator:
     """Generate SQL queries from natural language using LLM"""
 
-    def __init__(self, schema_file: str = None):
+    def __init__(self, schema_file: str = None, use_dynamic_schema: bool = True):
+        """
+        Initialize SQL Generator
+
+        Args:
+            schema_file: Path to YAML file with business descriptions (optional)
+            use_dynamic_schema: If True, fetch schema dynamically from Trino (default: True)
+        """
         # Load environment variables
         self._load_env()
 
-        # Initialize schema loader
-        self.schema_loader = SchemaLoader(schema_file)
+        # Initialize schema loader with dynamic schema support
+        self.schema_loader = SchemaLoader(schema_file, use_dynamic_schema=use_dynamic_schema)
         self.schema_context = self.schema_loader.get_schema_context()
 
         # Initialize LLM
