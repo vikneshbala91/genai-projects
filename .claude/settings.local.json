@@ -12,7 +12,10 @@
       "Bash(lsof:*)",
       "Bash(kill:*)",
       "Bash(pip uninstall:*)",
-      "Bash(killall:*)"
+      "Bash(killall:*)",
+      "Bash(ping:*)",
+      "Bash(nslookup:*)",
+      "Bash(cp:*)"
     ],
     "deny": [],
     "ask": []

@@ -7,9 +7,12 @@ from pathlib import Path
 from typing import List, Dict, Any, Tuple
 from dotenv import load_dotenv
 import trino
+from trino.auth import BasicAuthentication
 import pandas as pd
 from tabulate import tabulate
+import warnings
 
+warnings.filterwarnings("ignore")
 logger = logging.getLogger(__name__)
 
 
@@ -27,16 +30,39 @@ class TrinoExecutor:
         load_dotenv(dotenv_path=env_path)
 
     def connect(self):
-        """Establish connection to Trino"""
+        """Establish connection to Trino with BasicAuthentication from .env"""
         try:
-            self.connection = trino.dbapi.connect(
-                host=os.environ.get("TRINO_HOST", "localhost"),
-                port=int(os.environ.get("TRINO_PORT", 8080)),
-                user=os.environ.get("TRINO_USER", "admin"),
-                catalog=os.environ.get("TRINO_CATALOG", "hive"),
-                schema=os.environ.get("TRINO_SCHEMA", "default"),
-                http_scheme=os.environ.get("TRINO_HTTP_SCHEME", "http"),
-            )
+            # Get credentials from environment variables
+            trino_user = os.environ.get("TRINO_USER")
+            trino_password = os.environ.get("TRINO_PASSWORD")
+
+            if not trino_user or not trino_password:
+                raise ValueError("TRINO_USER and TRINO_PASSWORD must be set in .env file")
+
+            # Create BasicAuthentication
+            trino_auth = BasicAuthentication(trino_user, trino_password)
+
+            # Connect to Trino
+            # Note: Some Trino installations behind reverse proxies may require
+            # specifying the source parameter or removing catalog/schema from connection
+            connection_kwargs = {
+                "host": os.environ.get("TRINO_HOST", "common-warehouse-cia.mediacorp.sg"),
+                "port": int(os.environ.get("TRINO_PORT", 443)),
+                "user": trino_user,
+                "http_scheme": os.environ.get("TRINO_HTTP_SCHEME", "https"),
+                "auth": trino_auth,
+                "verify": False
+            }
+
+            # Add catalog and schema if specified
+            catalog = os.environ.get("TRINO_CATALOG")
+            schema = os.environ.get("TRINO_SCHEMA")
+            if catalog:
+                connection_kwargs["catalog"] = catalog
+            if schema:
+                connection_kwargs["schema"] = schema
+
+            self.connection = trino.dbapi.connect(**connection_kwargs)
             logger.info("Connected to Trino successfully")
         except Exception as e:
             logger.error(f"Failed to connect to Trino: {e}")
