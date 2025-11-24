@@ -26,6 +26,7 @@ class SchemaLoader:
         self.use_dynamic_schema = use_dynamic_schema
         self.schema_file = None
         self.yaml_descriptions = {}
+        self.blacklist_tables = set()
 
         # Load YAML descriptions if file exists
         if schema_file is None:
@@ -37,12 +38,15 @@ class SchemaLoader:
         else:
             logger.warning(f"Schema file not found: {self.schema_file}")
 
+        # Load blacklist (optional)
+        self.blacklist_tables = self._load_blacklist_tables()
+
         # Load dynamic schema from Trino if enabled
         self.schema_data = self._load_schema()
 
     def _load_env(self):
         """Load environment variables"""
-        project_root = Path(__file__).parent.parent.parent
+        project_root = Path(__file__).parent.parent
         env_path = project_root / ".env"
         load_dotenv(dotenv_path=env_path)
 
@@ -67,8 +71,34 @@ class SchemaLoader:
         else:
             return self.yaml_descriptions
 
+    def _load_blacklist_tables(self) -> set:
+        """Load blacklisted tables from schemas/blacklist_tables.yaml."""
+        try:
+            blacklist_path = Path(__file__).parent.parent / "schemas" / "blacklist_tables.yaml"
+            if not blacklist_path.exists():
+                return set()
+            with open(blacklist_path, "r") as f:
+                data = yaml.safe_load(f) or {}
+            tables = data.get("tables", []) or []
+            blk = set()
+            for entry in tables:
+                cat = str(entry.get("catalog", "")).lower()
+                sch = str(entry.get("schema", "")).lower()
+                tbl = str(entry.get("table", "")).lower()
+                if tbl:
+                    blk.add((cat, sch, tbl))
+            return blk
+        except Exception as e:
+            logger.error(f"Error loading blacklist tables: {e}")
+            return set()
+
+    def _is_blacklisted(self, catalog: str, schema: str, table: str) -> bool:
+        return (str(catalog or "").lower(), str(schema or "").lower(), str(table or "").lower()) in self.blacklist_tables
+
     def _load_dynamic_schema(self) -> Dict:
-        """Fetch schema dynamically from Trino and merge with YAML descriptions"""
+        """
+        Fetch schema dynamically from Trino for tables missing in YAML, skipping any blacklisted tables.
+        """
         try:
             # Import here to avoid circular dependency
             from trino_schema_fetcher import TrinoSchemaFetcher
@@ -85,14 +115,55 @@ class SchemaLoader:
 
             logger.info(f"Fetching dynamic schema from Trino: {catalog}.{schema}")
 
-            # Fetch schema from Trino
             fetcher = TrinoSchemaFetcher()
-            trino_schema = fetcher.get_full_schema(catalog, schema)
 
-            # Merge with YAML descriptions
-            merged_schema = self._merge_schemas(trino_schema, self.yaml_descriptions)
+            # Tables already described in YAML (lowercased)
+            yaml_tables = {
+                (catalog.lower(), schema.lower(), table.get("name", "").lower()): table
+                for table in self.yaml_descriptions.get("tables", [])
+            }
 
-            logger.info(f"Loaded {len(merged_schema.get('tables', []))} tables from Trino")
+            # Fetch available tables from Trino and filter
+            all_tables = fetcher.get_tables(catalog, schema)
+            filtered_tables = [
+                t for t in all_tables
+                if not self._is_blacklisted(catalog, schema, t)
+            ]
+            missing_tables = [
+                t for t in filtered_tables
+                if (catalog.lower(), schema.lower(), t.lower()) not in yaml_tables
+            ]
+
+            # Start with YAML tables that are not blacklisted
+            merged_tables = [
+                tbl for tbl in self.yaml_descriptions.get("tables", [])
+                if not self._is_blacklisted(catalog, schema, tbl.get("name", ""))
+            ]
+
+            # Fetch columns only for missing tables
+            for table_name in missing_tables:
+                columns = fetcher.get_table_columns(catalog, schema, table_name)
+                merged_tables.append({
+                    "name": table_name,
+                    "description": f"Table: {table_name}",
+                    "columns": [
+                        {
+                            "name": col.get("name"),
+                            "type": col.get("type"),
+                            "description": col.get("comment", ""),
+                        } for col in columns
+                    ],
+                })
+
+            merged_schema = {
+                "database": f"{catalog}.{schema}",
+                "tables": merged_tables,
+            }
+
+            if "relationships" in self.yaml_descriptions:
+                merged_schema["relationships"] = self.yaml_descriptions["relationships"]
+
+            logger.info(f"Loaded {len(merged_tables)} tables (YAML + dynamic) for {catalog}.{schema}")
             return merged_schema
 
         except Exception as e:

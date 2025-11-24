@@ -25,7 +25,7 @@ class TrinoExecutor:
 
     def _load_env(self):
         """Load environment variables"""
-        project_root = Path(__file__).parent.parent.parent
+        project_root = Path(__file__).parent.parent
         env_path = project_root / ".env"
         load_dotenv(dotenv_path=env_path)
 

@@ -6,9 +6,8 @@ import logging
 from pathlib import Path
 from dotenv import load_dotenv
 from langchain_openai import AzureChatOpenAI
-from langchain.prompts import ChatPromptTemplate
-from langchain_core.output_parsers import StrOutputParser
 from schema_loader import SchemaLoader
+from agents import PlanningAgent, SQLBuilderAgent, SQLValidatorAgent
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +29,8 @@ class SQLGenerator:
         # Initialize schema loader with dynamic schema support
         self.schema_loader = SchemaLoader(schema_file, use_dynamic_schema=use_dynamic_schema)
         self.schema_context = self.schema_loader.get_schema_context()
+        self.database_name = self.schema_loader.get_database_name()
+        self.catalog, self.schema_name = self._parse_catalog_schema(self.database_name)
 
         # Initialize LLM
         self.llm = AzureChatOpenAI(
@@ -38,58 +39,22 @@ class SQLGenerator:
             temperature=0.0,  # Low temperature for consistent SQL generation
         )
 
-        # Create prompt template
-        self.prompt = self._create_prompt()
-
-        # Create chain
-        self.chain = self.prompt | self.llm | StrOutputParser()
+        # Agents
+        self.planner = PlanningAgent(self.llm)
+        self.sql_builder = SQLBuilderAgent(self.llm)
+        self.validator = SQLValidatorAgent(self.sql_builder)
 
     def _load_env(self):
         """Load environment variables"""
-        # Clear existing Azure OpenAI vars
+        # Clear existing Azure OpenAI vars to avoid mixing environments
         for key in list(os.environ.keys()):
             if key.startswith('AZURE_OPENAI'):
                 del os.environ[key]
 
-        # Load from .env file in project root
-        project_root = Path(__file__).parent.parent.parent
+        # Load from .env file in project root (trino_nl2sql)
+        project_root = Path(__file__).parent.parent
         env_path = project_root / ".env"
         load_dotenv(dotenv_path=env_path)
-
-    def _create_prompt(self) -> ChatPromptTemplate:
-        """Create the SQL generation prompt"""
-        template = """You are a SQL expert specializing in Trino SQL dialect.
-Your task is to convert natural language questions into valid Trino SQL queries.
-
-# Database Schema:
-{schema}
-
-# Important Rules:
-1. Generate ONLY valid Trino SQL syntax
-2. Use proper table names with catalog.schema prefix if needed
-3. Always use standard SQL functions compatible with Trino
-4. For date operations, use Trino date functions (date_add, date_diff, etc.)
-5. Use LIMIT clause to restrict result size when appropriate
-6. Return ONLY the SQL query, no explanations or markdown
-7. Do not use backticks or code blocks
-8. Ensure the query is safe (no DROP, DELETE, or TRUNCATE operations)
-
-# Examples:
-Question: "Show me all customers"
-SQL: SELECT * FROM customers LIMIT 100
-
-Question: "How many orders were placed last month?"
-SQL: SELECT COUNT(*) as order_count FROM orders WHERE order_date >= date_add('month', -1, current_date) AND order_date < current_date
-
-Question: "What are the top 5 customers by total order value?"
-SQL: SELECT c.customer_id, c.name, SUM(o.total_amount) as total_spent FROM customers c JOIN orders o ON c.customer_id = o.customer_id GROUP BY c.customer_id, c.name ORDER BY total_spent DESC LIMIT 5
-
-# User Question:
-{question}
-
-# SQL Query:"""
-
-        return ChatPromptTemplate.from_template(template)
 
     def generate_sql(self, question: str) -> str:
         """
@@ -104,19 +69,73 @@ SQL: SELECT c.customer_id, c.name, SUM(o.total_amount) as total_spent FROM custo
         logger.info(f"Generating SQL for question: {question}")
 
         try:
-            sql_query = self.chain.invoke({
-                "schema": self.schema_context,
-                "question": question
-            })
+            plan = self.planner.plan(
+                question=question,
+                schema_context=self.schema_context,
+                catalog=self.catalog or "",
+                schema_name=self.schema_name or "",
+                database=self.database_name or "",
+            )
+            plan_context = self.planner.format_for_prompt(plan)
 
-            # Clean up the SQL query
-            sql_query = sql_query.strip()
+            # Multi-query path: build and validate each step separately
+            if plan.get("plan_type") == "multi_query":
+                sql_tasks = []
+                for step in plan.get("steps", []):
+                    step_id = step.get("id", "q1")
+                    objective = step.get("objective", question)
+                    step_plan_context = (
+                        f"plan_type: multi_query\n"
+                        f"step: {step_id}\n"
+                        f"objective: {objective}\n"
+                        f"final_instruction: {plan.get('final_instruction', '')}"
+                    )
+                    step_question = f"{question}\nSub-task {step_id}: {objective}"
 
-            # Remove markdown code blocks if present
-            if sql_query.startswith("```"):
-                lines = sql_query.split("\n")
-                sql_query = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
-                sql_query = sql_query.strip()
+                    sql = self.sql_builder.build(
+                        question=step_question,
+                        schema_context=self.schema_context,
+                        catalog=self.catalog or "",
+                        schema_name=self.schema_name or "",
+                        database=self.database_name or "",
+                        plan_context=step_plan_context,
+                    )
+                    sql = self.validator.validate(
+                        sql,
+                        question=step_question,
+                        schema_context=self.schema_context,
+                        plan_context=step_plan_context,
+                        catalog=self.catalog or "",
+                        schema_name=self.schema_name or "",
+                        database=self.database_name or "",
+                    )
+                    sql_tasks.append(
+                        {"id": step_id, "objective": objective, "sql": sql}
+                    )
+
+                logger.info(f"Generated {len(sql_tasks)} SQL statements for multi_query plan.")
+                return sql_tasks
+
+            # First attempt
+            sql_query = self.sql_builder.build(
+                question=question,
+                schema_context=self.schema_context,
+                catalog=self.catalog or "",
+                schema_name=self.schema_name or "",
+                database=self.database_name or "",
+                plan_context=plan_context,
+            )
+
+            # Post-process and validate compatibility with Trino
+            sql_query = self.validator.validate(
+                sql_query,
+                question=question,
+                schema_context=self.schema_context,
+                plan_context=plan_context,
+                catalog=self.catalog or "",
+                schema_name=self.schema_name or "",
+                database=self.database_name or "",
+            )
 
             logger.info(f"Generated SQL: {sql_query}")
             return sql_query
@@ -125,6 +144,15 @@ SQL: SELECT c.customer_id, c.name, SUM(o.total_amount) as total_spent FROM custo
             logger.error(f"Error generating SQL: {e}")
             raise
 
+
+    def _parse_catalog_schema(self, database: str):
+        """Extract catalog and schema names from fully qualified database string."""
+        if not database or "." not in database:
+            return None, None
+        parts = database.split(".", 1)
+        catalog = parts[0]
+        schema = parts[1] if len(parts) > 1 else None
+        return catalog, schema
 
 if __name__ == "__main__":
     # Test the SQL generator

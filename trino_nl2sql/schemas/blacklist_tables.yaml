@@ -1,0 +1,17 @@
+# List tables to avoid for NL->SQL generation (guardrails/sensitive data).
+# Populate `tables` with fully qualified names or catalog/schema/table parts.
+#
+# Examples:
+# - catalog: hive
+#   schema: reco_prod
+#   table: pii_users
+#   reason: Contains personally identifiable information
+#
+# - catalog: hive
+#   schema: finance
+#   table: payments_raw
+#   reason: Raw payments data; restricted access
+#
+# Use lowercase to match typical Trino identifiers, and add as many entries as needed.
+
+tables: []

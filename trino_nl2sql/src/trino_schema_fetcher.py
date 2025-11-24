@@ -23,6 +23,12 @@ class TrinoSchemaFetcher:
         if not self.executor.connection:
             self.executor.connect()
 
+    @staticmethod
+    def _quote(identifier: str) -> str:
+        """Safely double-quote identifiers for Trino."""
+        cleaned = identifier.replace('"', '""')
+        return f'"{cleaned}"'
+
     def get_catalogs(self) -> List[str]:
         """Get list of available catalogs"""
         try:
@@ -35,7 +41,8 @@ class TrinoSchemaFetcher:
     def get_schemas(self, catalog: str) -> List[str]:
         """Get list of schemas in a catalog"""
         try:
-            results, _ = self.executor.execute_query(f"SHOW SCHEMAS FROM {catalog}")
+            cat = self._quote(catalog)
+            results, _ = self.executor.execute_query(f"SHOW SCHEMAS FROM {cat}")
             return [row['Schema'] for row in results]
         except Exception as e:
             logger.error(f"Failed to fetch schemas from {catalog}: {e}")
@@ -44,8 +51,10 @@ class TrinoSchemaFetcher:
     def get_tables(self, catalog: str, schema: str) -> List[str]:
         """Get list of tables in a schema"""
         try:
+            cat = self._quote(catalog)
+            sch = self._quote(schema)
             results, _ = self.executor.execute_query(
-                f"SHOW TABLES FROM {catalog}.{schema}"
+                f"SHOW TABLES FROM {cat}.{sch}"
             )
             return [row['Table'] for row in results]
         except Exception as e:
@@ -60,9 +69,12 @@ class TrinoSchemaFetcher:
             List of dicts with keys: name, type, extra, comment
         """
         try:
+            cat = self._quote(catalog)
+            sch = self._quote(schema)
+            tbl = self._quote(table)
             # Use DESCRIBE to get column information
             results, _ = self.executor.execute_query(
-                f"DESCRIBE {catalog}.{schema}.{table}"
+                f"DESCRIBE {cat}.{sch}.{tbl}"
             )
 
             columns = []
@@ -125,8 +137,11 @@ class TrinoSchemaFetcher:
     def get_sample_data(self, catalog: str, schema: str, table: str, limit: int = 5) -> List[Dict]:
         """Get sample data from a table to help understand the data"""
         try:
+            cat = self._quote(catalog)
+            sch = self._quote(schema)
+            tbl = self._quote(table)
             results, _ = self.executor.execute_query(
-                f"SELECT * FROM {catalog}.{schema}.{table} LIMIT {limit}"
+                f"SELECT * FROM {cat}.{sch}.{tbl} LIMIT {limit}"
             )
             return results
         except Exception as e:

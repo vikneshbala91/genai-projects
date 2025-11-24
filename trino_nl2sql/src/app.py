@@ -6,6 +6,7 @@ Natural Language to SQL query interface for Trino
 import os
 import sys
 import logging
+import atexit
 from pathlib import Path
 from flask import Flask, render_template, request, jsonify
 from dotenv import load_dotenv
@@ -22,15 +23,15 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Load environment variables
-project_root = src_dir.parent.parent
+# Load environment variables (trino_nl2sql/.env)
+project_root = src_dir.parent
 env_path = project_root / ".env"
 load_dotenv(dotenv_path=env_path)
 
 # Import modules
 from sql_generator import SQLGenerator
-from trino_executor import TrinoExecutor
 from result_formatter import ResultFormatter
+from agents import SQLExecutorAgent
 
 # Initialize Flask app
 app = Flask(
@@ -41,8 +42,11 @@ app = Flask(
 
 # Initialize components
 sql_generator = SQLGenerator()
-trino_executor = TrinoExecutor()
+sql_executor = SQLExecutorAgent()
 result_formatter = ResultFormatter()
+
+# Ensure executor closes on shutdown
+atexit.register(sql_executor.close)
 
 
 @app.route('/')
@@ -74,47 +78,90 @@ def query():
                 'status': 'error'
             }), 500
 
-        # Step 2: Execute query
-        try:
-            results, columns = trino_executor.execute_query(sql_query)
-            logger.info(f"Query executed, returned {len(results)} rows")
-        except Exception as e:
-            logger.error(f"Query execution failed: {e}")
-            return jsonify({
-                'error': f'Failed to execute query: {str(e)}',
-                'sql': sql_query,
-                'status': 'error'
-            }), 500
+        # Step 2: Execute query (single or multi-query plan)
+        if isinstance(sql_query, list):
+            multi_results = []
+            for task in sql_query:
+                step_id = task.get("id", "q?")
+                objective = task.get("objective", "")
+                step_sql = task.get("sql", "")
+                try:
+                    results, columns = sql_executor.execute(step_sql)
+                    logger.info(f"[{step_id}] executed, returned {len(results)} rows")
+                except Exception as e:
+                    logger.error(f"[{step_id}] execution failed: {e}")
+                    return jsonify({
+                        'error': f'Failed to execute step {step_id}: {str(e)}',
+                        'sql': step_sql,
+                        'step': step_id,
+                        'status': 'error'
+                    }), 500
 
-        # Step 3: Format results
-        try:
-            # Generate plain English explanation
-            explanation = result_formatter.explain_results(question, sql_query, results)
+                try:
+                    explanation = result_formatter.explain_results(f"{question} ({objective})", step_sql, results)
+                    table_html = sql_executor.format_results_as_html(results, columns)
+                except Exception as e:
+                    logger.error(f"[{step_id}] formatting failed: {e}")
+                    table_html = sql_executor.format_results_as_html(results, columns)
+                    explanation = f'Step {step_id} returned {len(results)} rows.'
 
-            # Format as HTML table
-            table_html = trino_executor.format_results_as_html(results, columns)
+                multi_results.append({
+                    'step': step_id,
+                    'objective': objective,
+                    'sql': step_sql,
+                    'explanation': explanation,
+                    'table': table_html,
+                    'row_count': len(results)
+                })
 
             return jsonify({
                 'status': 'success',
                 'question': question,
-                'sql': sql_query,
-                'explanation': explanation,
-                'table': table_html,
-                'row_count': len(results)
+                'plan_type': 'multi_query',
+                'steps': multi_results
             })
 
-        except Exception as e:
-            logger.error(f"Result formatting failed: {e}")
-            # Return results without explanation
-            table_html = trino_executor.format_results_as_html(results, columns)
-            return jsonify({
-                'status': 'success',
-                'question': question,
-                'sql': sql_query,
-                'explanation': f'Query returned {len(results)} rows.',
-                'table': table_html,
-                'row_count': len(results)
-            })
+        else:
+            try:
+                results, columns = sql_executor.execute(sql_query)
+                logger.info(f"Query executed, returned {len(results)} rows")
+            except Exception as e:
+                logger.error(f"Query execution failed: {e}")
+                return jsonify({
+                    'error': f'Failed to execute query: {str(e)}',
+                    'sql': sql_query,
+                    'status': 'error'
+                }), 500
+
+            # Step 3: Format results
+            try:
+                # Generate plain English explanation
+                explanation = result_formatter.explain_results(question, sql_query, results)
+
+                # Format as HTML table
+                table_html = sql_executor.format_results_as_html(results, columns)
+
+                return jsonify({
+                    'status': 'success',
+                    'question': question,
+                    'sql': sql_query,
+                    'explanation': explanation,
+                    'table': table_html,
+                    'row_count': len(results)
+                })
+
+            except Exception as e:
+                logger.error(f"Result formatting failed: {e}")
+                # Return results without explanation
+                table_html = sql_executor.format_results_as_html(results, columns)
+                return jsonify({
+                    'status': 'success',
+                    'question': question,
+                    'sql': sql_query,
+                    'explanation': f'Query returned {len(results)} rows.',
+                    'table': table_html,
+                    'row_count': len(results)
+                })
 
     except Exception as e:
         logger.error(f"Unexpected error: {e}", exc_info=True)
@@ -150,5 +197,9 @@ if __name__ == '__main__':
     logger.info(f"Starting Trino NL2SQL application")
     logger.info(f"Loading .env from: {env_path}")
 
+    port = int(os.environ.get("PORT", 8080))
+    if port != 8080:
+        logger.info(f"Using custom port from PORT env: {port}")
+
     # Run the app
-    app.run(debug=True, host='0.0.0.0', port=8080, use_reloader=False)
+    app.run(debug=True, host='0.0.0.0', port=port, use_reloader=False)

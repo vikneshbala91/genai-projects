@@ -38,7 +38,7 @@ class ResultFormatter:
             if key.startswith('AZURE_OPENAI'):
                 del os.environ[key]
 
-        project_root = Path(__file__).parent.parent.parent
+        project_root = Path(__file__).parent.parent
         env_path = project_root / ".env"
         load_dotenv(dotenv_path=env_path)
 
