@@ -45,8 +45,9 @@ trino_nl2sql/
 
 ```bash
 cd trino_nl2sql
+python3 -m venv venv
+source venv/bin/activate
 pip install -r requirements.txt
-pip install pyyaml  # For schema loading
 ```
 
 ### 2. Configure Environment Variables
