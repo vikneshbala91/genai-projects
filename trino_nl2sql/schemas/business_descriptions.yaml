@@ -28,6 +28,61 @@ tables:
       - name: channel
         description: Sales channel (web, app, store)
 
+  - name: boost_mewatch_engine_normalized_report
+    description: Normalized engine performance report from the MeWatch recommendations
+    columns:
+      - name: abtesting_id
+        description: A/B testing identifier used to track experimental variants
+      - name: widget_platform
+        description: Platform where the widget is rendered (e.g. Web or App or Tv)
+      - name: engine
+        description: Name of the engine - e.g. Challenger or Champion or Null
+      - name: impressions
+        description: Number of times the abtesting_id was displayed or loaded to the end users for the particular widget_platform
+      - name: bookmarks
+        description: Number of bookmark actions performed by users for the given abtesting_id and widget_platform
+      - name: clicks
+        description: Number of click interactions performed by users for the given abtesting_id and widget_platform
+      - name: downloads
+        description: Number of download actions performed by users for the given abtesting_id and widget_platform
+      - name: video_completions
+        description: Number of 'end_play' action generated for users who watched the videos from the recommendations for the given abtesting_id and widget_platform
+      - name: video_starts
+        description: Number of 'start_play' action generated for users who watched the videos from the recommendations for the given abtesting_id and widget_platform
+      - name: video_pauses
+        description: Number of 'stop_play' action generated for users who watched the videos from the recommendations for the given abtesting_id and widget_platform
+      - name: uv
+        description: Unique visitors count
+      - name: uvv
+        description: Unique video views
+      - name: uvv_rec
+        description: Unique video views attributed to recommendation engines
+      - name: video_view_duration
+        description: Total watch time recorded from the video views in seconds (clipped at 1.2x video duration of each content). This is to be used for measuring engagement rate.
+      - name: video_view_duration_actual
+        description: Total watch time recorded from the video views in seconds. This field is just for record purpose and should not be used for any analysis
+      - name: errors
+        description: Number of errors instances while loading the abtesting_id for the particular widget_platform
+      - name: purchases
+        description: Number of purchase actions performed by users for the given abtesting_id and widget_platform
+      - name: subscribes
+        description: Number of subscribe actions performed by users for the given abtesting_id and widget_platform
+      - name: targeted_impressions
+        description: Not to be used. Use 'impressions' column instead.
+      - name: targeted_errors
+        description: Not to be used. Use 'errors' column instead.
+      - name: targeted_clicks
+        description: Not to be used. Use 'clicks' column instead.
+      - name: traffic_normalized
+        description: Boolean flag indicating if the data has been traffic-normalized. Currently only has true value
+      - name: date
+        description: Date of the report (partition key)
+      - name: report_type
+        description: Report type indicator. Currently only has 'normalized_abtesting_report' value
+    partitions:
+      - name: date
+        description: Partition column for date-based data organization
+
 relationships:
   - from: orders.customer_id
     to: customers.customer_id

@@ -39,6 +39,7 @@ Fully-qualified: {database}
 9. If the user asks to list tables, use `information_schema.tables` filtered by the catalog/schema above. Example: SELECT table_name FROM <catalog>.information_schema.tables WHERE table_schema = '<schema_name>' ORDER BY table_name;
 10. If the user asks to list columns for a table, use `information_schema.columns` filtered by `table_schema` and `table_name`.
 11. If the plan_type is multi_cte, use CTEs named after the step ids (e.g., WITH q1 AS (...), q2 AS (...)) and produce a final SELECT that combines them per the plan. Keep the number of CTEs small and avoid duplicate work.
+12. When the user requests comparisons, totals, or summaries without explicitly asking for per-day detail, aggregate metrics at the relevant grouping (e.g., GROUP BY engine) and omit the date column unless requested; use SUM for counts and averages for duration-type fields.
 
 # User Question:
 {question}
