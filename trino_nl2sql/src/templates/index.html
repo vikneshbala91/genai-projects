@@ -93,7 +93,8 @@
                     bubble.classList.add('clarification');
                 }
 
-                if (msg.sql || msg.table || (msg.steps && msg.steps.length)) {
+                const hasQueryDetails = msg.query_executed && (msg.sql || msg.table || (msg.steps && msg.steps.length));
+                if (hasQueryDetails) {
                     const details = document.createElement('details');
                     const summary = document.createElement('summary');
                     summary.textContent = 'Show SQL & results';
@@ -223,6 +224,7 @@
                         text: data.error || 'An unknown error occurred',
                         sql: data.sql || '',
                         intent: 'error',
+                        query_executed: data.query_executed === true,
                     });
                 }
             })
@@ -251,6 +253,7 @@
                     text: data.question || 'Multi-step plan executed.',
                     plan_type: 'multi_query',
                     steps,
+                    query_executed: true,
                 });
                 return;
             }
@@ -263,6 +266,7 @@
                 plan_type: data.plan_type || 'single',
                 row_count: data.row_count,
                 intent: data.intent,
+                query_executed: data.query_executed === true,
             });
         }
 

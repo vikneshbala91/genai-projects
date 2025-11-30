@@ -113,34 +113,45 @@ def query():
                 conversation_id,
                 role="assistant",
                 content=reply,
-                metadata={"plan_type": "none", "row_count": 0, "intent": intent},
+                metadata={"plan_type": "none", "row_count": 0, "intent": intent, "query_executed": False},
             )
             return jsonify({
                 'status': 'success',
                 'question': question,
                 'sql': '',
                 'explanation': reply,
-                'table': '<div class="explanation">No query executed.</div>',
                 'row_count': 0,
-                'conversation_id': conversation_id
+                'conversation_id': conversation_id,
+                'intent': intent,
+                'query_executed': False
             })
 
         if intent in ("clarification_needed", "other"):
-            reply = follow_up or "Can you clarify what metric, table, or time range you want to explore?"
+            if intent == "clarification_needed":
+                reply = follow_up or (
+                    "I want to help, but I need a bit more detail. "
+                    "What metric, table, or time range should I use? No query run yet."
+                )
+            else:
+                reply = follow_up or (
+                    "I'm built to help with questions about the data and schema I know. "
+                    "Could you ask something related to those tables or metrics?"
+                )
             conversation_store.append_message(
                 conversation_id,
                 role="assistant",
                 content=reply,
-                metadata={"plan_type": "none", "row_count": 0, "intent": intent},
+                metadata={"plan_type": "none", "row_count": 0, "intent": intent, "query_executed": False},
             )
             return jsonify({
                 'status': 'success',
                 'question': question,
                 'sql': '',
                 'explanation': reply,
-                'table': '<div class="explanation">No query executed until clarification.</div>',
                 'row_count': 0,
-                'conversation_id': conversation_id
+                'conversation_id': conversation_id,
+                'intent': intent,
+                'query_executed': False
             })
 
         logger.info(f"Processing question: {question}")
@@ -172,14 +183,15 @@ def query():
                         conversation_id,
                         role="assistant",
                         content=f"Execution failed for step {step_id}",
-                        metadata={"error": str(e), "sql": step_sql, "step": step_id, "plan_type": "multi_query"},
+                        metadata={"error": str(e), "sql": step_sql, "step": step_id, "plan_type": "multi_query", "query_executed": True},
                     )
                     return jsonify({
                         'error': f'Failed to execute step {step_id}: {str(e)}',
                         'sql': step_sql,
                         'step': step_id,
                         'status': 'error',
-                        'conversation_id': conversation_id
+                        'conversation_id': conversation_id,
+                        'query_executed': True
                     }), 500
 
                 try:
@@ -205,6 +217,7 @@ def query():
                 content=f"Executed {len(multi_results)}-step plan for: {question}",
                 metadata={
                     "plan_type": "multi_query",
+                    "query_executed": True,
                     "steps": [
                         {
                             "id": step["step"],
@@ -222,7 +235,8 @@ def query():
                 'question': question,
                 'plan_type': 'multi_query',
                 'steps': multi_results,
-                'conversation_id': conversation_id
+                'conversation_id': conversation_id,
+                'query_executed': True
             })
 
         else:
@@ -235,13 +249,14 @@ def query():
                     conversation_id,
                     role="assistant",
                     content="Query execution failed",
-                    metadata={"error": str(e), "sql": sql_query},
+                    metadata={"error": str(e), "sql": sql_query, "query_executed": True},
                 )
                 return jsonify({
                     'error': f'Failed to execute query: {str(e)}',
                     'sql': sql_query,
                     'status': 'error',
-                    'conversation_id': conversation_id
+                    'conversation_id': conversation_id,
+                    'query_executed': True
                 }), 500
 
             # Step 3: Format results
@@ -260,6 +275,7 @@ def query():
                         "plan_type": "single",
                         "sql": sql_query,
                         "row_count": len(results),
+                        "query_executed": True,
                     },
                 )
 
@@ -270,7 +286,8 @@ def query():
                     'explanation': explanation,
                     'table': table_html,
                     'row_count': len(results),
-                    'conversation_id': conversation_id
+                    'conversation_id': conversation_id,
+                    'query_executed': True
                 })
 
             except Exception as e:
@@ -286,6 +303,7 @@ def query():
                         "sql": sql_query,
                         "row_count": len(results),
                         "formatting_error": str(e),
+                        "query_executed": True,
                     },
                 )
                 return jsonify({
@@ -295,7 +313,8 @@ def query():
                     'explanation': f'Query returned {len(results)} rows.',
                     'table': table_html,
                     'row_count': len(results),
-                    'conversation_id': conversation_id
+                    'conversation_id': conversation_id,
+                    'query_executed': True
                 })
 
     except Exception as e:
