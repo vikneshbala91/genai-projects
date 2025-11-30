@@ -32,6 +32,7 @@ load_dotenv(dotenv_path=env_path)
 from sql_generator import SQLGenerator
 from result_formatter import ResultFormatter
 from agents import SQLExecutorAgent
+from conversation_store import ConversationStore
 
 # Initialize Flask app
 app = Flask(
@@ -44,9 +45,30 @@ app = Flask(
 sql_generator = SQLGenerator()
 sql_executor = SQLExecutorAgent()
 result_formatter = ResultFormatter()
+conversation_store = ConversationStore()
 
 # Ensure executor closes on shutdown
 atexit.register(sql_executor.close)
+
+
+@app.route('/conversations', methods=['POST'])
+def create_conversation():
+    """Create a new chat conversation and return its ID."""
+    try:
+        data = request.get_json(silent=True) or {}
+        topic = data.get('topic')
+        conversation_id = conversation_store.create_conversation(topic=topic)
+        return jsonify({
+            'status': 'success',
+            'conversation_id': conversation_id,
+            'storage': conversation_store.storage_backend
+        })
+    except Exception as e:
+        logger.error(f"Failed to create conversation: {e}", exc_info=True)
+        return jsonify({
+            'error': f'Unable to create conversation: {str(e)}',
+            'status': 'error'
+        }), 500
 
 
 @app.route('/')
@@ -58,12 +80,27 @@ def index():
 @app.route('/query', methods=['POST'])
 def query():
     """Handle natural language query"""
+    conversation_id = None
     try:
-        data = request.json
-        question = data.get('question', '')
+        data = request.get_json(silent=True) or {}
+        question = data.get('question', '').strip()
+        conversation_id = data.get('conversation_id')
 
         if not question:
-            return jsonify({'error': 'No question provided', 'status': 'error'}), 400
+            return jsonify({
+                'error': 'No question provided',
+                'status': 'error',
+                'conversation_id': conversation_id
+            }), 400
+
+        if not conversation_id:
+            conversation_id = conversation_store.create_conversation(topic="Natural language SQL chat")
+
+        conversation_store.append_message(
+            conversation_id,
+            role="user",
+            content=question,
+        )
 
         logger.info(f"Processing question: {question}")
 
@@ -90,11 +127,18 @@ def query():
                     logger.info(f"[{step_id}] executed, returned {len(results)} rows")
                 except Exception as e:
                     logger.error(f"[{step_id}] execution failed: {e}")
+                    conversation_store.append_message(
+                        conversation_id,
+                        role="assistant",
+                        content=f"Execution failed for step {step_id}",
+                        metadata={"error": str(e), "sql": step_sql, "step": step_id, "plan_type": "multi_query"},
+                    )
                     return jsonify({
                         'error': f'Failed to execute step {step_id}: {str(e)}',
                         'sql': step_sql,
                         'step': step_id,
-                        'status': 'error'
+                        'status': 'error',
+                        'conversation_id': conversation_id
                     }), 500
 
                 try:
@@ -114,11 +158,30 @@ def query():
                     'row_count': len(results)
                 })
 
+            conversation_store.append_message(
+                conversation_id,
+                role="assistant",
+                content=f"Executed {len(multi_results)}-step plan for: {question}",
+                metadata={
+                    "plan_type": "multi_query",
+                    "steps": [
+                        {
+                            "id": step["step"],
+                            "objective": step["objective"],
+                            "sql": step["sql"],
+                            "row_count": step["row_count"],
+                        }
+                        for step in multi_results
+                    ],
+                },
+            )
+
             return jsonify({
                 'status': 'success',
                 'question': question,
                 'plan_type': 'multi_query',
-                'steps': multi_results
+                'steps': multi_results,
+                'conversation_id': conversation_id
             })
 
         else:
@@ -127,10 +190,17 @@ def query():
                 logger.info(f"Query executed, returned {len(results)} rows")
             except Exception as e:
                 logger.error(f"Query execution failed: {e}")
+                conversation_store.append_message(
+                    conversation_id,
+                    role="assistant",
+                    content="Query execution failed",
+                    metadata={"error": str(e), "sql": sql_query},
+                )
                 return jsonify({
                     'error': f'Failed to execute query: {str(e)}',
                     'sql': sql_query,
-                    'status': 'error'
+                    'status': 'error',
+                    'conversation_id': conversation_id
                 }), 500
 
             # Step 3: Format results
@@ -141,33 +211,65 @@ def query():
                 # Format as HTML table
                 table_html = sql_executor.format_results_as_html(results, columns)
 
+                conversation_store.append_message(
+                    conversation_id,
+                    role="assistant",
+                    content=explanation,
+                    metadata={
+                        "plan_type": "single",
+                        "sql": sql_query,
+                        "row_count": len(results),
+                    },
+                )
+
                 return jsonify({
                     'status': 'success',
                     'question': question,
                     'sql': sql_query,
                     'explanation': explanation,
                     'table': table_html,
-                    'row_count': len(results)
+                    'row_count': len(results),
+                    'conversation_id': conversation_id
                 })
 
             except Exception as e:
                 logger.error(f"Result formatting failed: {e}")
                 # Return results without explanation
                 table_html = sql_executor.format_results_as_html(results, columns)
+                conversation_store.append_message(
+                    conversation_id,
+                    role="assistant",
+                    content=f"Query returned {len(results)} rows.",
+                    metadata={
+                        "plan_type": "single",
+                        "sql": sql_query,
+                        "row_count": len(results),
+                        "formatting_error": str(e),
+                    },
+                )
                 return jsonify({
                     'status': 'success',
                     'question': question,
                     'sql': sql_query,
                     'explanation': f'Query returned {len(results)} rows.',
                     'table': table_html,
-                    'row_count': len(results)
+                    'row_count': len(results),
+                    'conversation_id': conversation_id
                 })
 
     except Exception as e:
         logger.error(f"Unexpected error: {e}", exc_info=True)
+        if conversation_id:
+            conversation_store.append_message(
+                conversation_id,
+                role="assistant",
+                content="Unexpected error while handling your request.",
+                metadata={"error": str(e)},
+            )
         return jsonify({
             'error': f'An unexpected error occurred: {str(e)}',
-            'status': 'error'
+            'status': 'error',
+            'conversation_id': conversation_id
         }), 500
 
 

@@ -68,6 +68,12 @@ TRINO_USER=your-username
 TRINO_CATALOG=your-catalog
 TRINO_SCHEMA=your-schema
 TRINO_HTTP_SCHEME=http  # or https
+
+# Conversation storage (optional)
+COSMOS_ENDPOINT=https://your-account.documents.azure.com:443/
+COSMOS_KEY=your-cosmos-key
+COSMOS_DATABASE=trino-nl2sql
+COSMOS_CONTAINER=conversations
 ```
 
 ### 3. Configure Your Database Schema
@@ -103,6 +109,15 @@ python trino_nl2sql/src/app.py
 
 The application will be available at **http://localhost:8080**
 
+## Conversation storage
+
+- The UI now creates a `conversation_id` for each chat. A new ID is generated via `POST /conversations` and attached to every query request.
+- Configure Cosmos DB (see env vars above) to persist chats in the `conversations` container (partition key `/conversation_id`).
+- Stored document shape:
+  - `conversation_id` (also `id`), `topic`, `created_at`, `updated_at`
+  - `messages`: array of `{role, content, metadata, timestamp}` including generated SQL and row counts
+- If Cosmos is not configured or the `azure-cosmos` dependency is missing, the service falls back to an in-memory store for the current process.
+
 ## Usage
 
 ### Web Interface
@@ -114,6 +129,7 @@ The application will be available at **http://localhost:8080**
    - Plain English explanation
    - Generated SQL query
    - Data table with results
+5. Use "New Chat" to start a fresh conversation with a new `conversation_id` (persisted to Cosmos DB when configured; otherwise stored in memory during runtime)
 
 ### Example Questions
 
