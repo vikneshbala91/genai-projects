@@ -102,6 +102,47 @@ def query():
             content=question,
         )
 
+        # Determine intent before generating SQL
+        intent_info = sql_generator.classify_intent(question)
+        intent = intent_info.get("intent", "data_query")
+        follow_up = intent_info.get("follow_up", "")
+
+        if intent == "chitchat":
+            reply = "Hi there! I'm here to help with questions about your data. Try asking something like 'Top 10 customers by revenue last quarter.'"
+            conversation_store.append_message(
+                conversation_id,
+                role="assistant",
+                content=reply,
+                metadata={"plan_type": "none", "row_count": 0, "intent": intent},
+            )
+            return jsonify({
+                'status': 'success',
+                'question': question,
+                'sql': '',
+                'explanation': reply,
+                'table': '<div class="explanation">No query executed.</div>',
+                'row_count': 0,
+                'conversation_id': conversation_id
+            })
+
+        if intent in ("clarification_needed", "other"):
+            reply = follow_up or "Can you clarify what metric, table, or time range you want to explore?"
+            conversation_store.append_message(
+                conversation_id,
+                role="assistant",
+                content=reply,
+                metadata={"plan_type": "none", "row_count": 0, "intent": intent},
+            )
+            return jsonify({
+                'status': 'success',
+                'question': question,
+                'sql': '',
+                'explanation': reply,
+                'table': '<div class="explanation">No query executed until clarification.</div>',
+                'row_count': 0,
+                'conversation_id': conversation_id
+            })
+
         logger.info(f"Processing question: {question}")
 
         # Step 1: Generate SQL

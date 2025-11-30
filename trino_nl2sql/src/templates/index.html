@@ -19,83 +19,132 @@
                 <code id="conversation-id">—</code>
                 <span id="storage-badge" class="storage-badge">memory</span>
             </div>
-            <button id="new-chat-button" onclick="startNewConversation()">New Chat</button>
-        </div>
-
-        <div class="main-content">
-            <div class="query-section">
-                <div class="input-area">
-                    <textarea
-                        id="question-input"
-                        placeholder="Ask a question about your data (e.g., 'Show me the top 10 customers by revenue')..."
-                        rows="3"
-                    ></textarea>
-                    <button id="submit-button" onclick="submitQuery()">Ask Question</button>
-                    <button id="schema-button" onclick="showSchema()">View Schema</button>
-                </div>
-
-                <div id="loading" class="loading" style="display: none;">
-                    <div class="spinner"></div>
-                    <span>Generating SQL and querying database...</span>
-                </div>
-            </div>
-
-            <div id="results-container" class="results-container" style="display: none;">
-                <div class="result-section">
-                    <h3>📊 Results</h3>
-                    <div id="explanation" class="explanation"></div>
-                </div>
-
-                <div class="result-section">
-                    <h3>📝 Generated SQL</h3>
-                    <pre id="sql-query" class="sql-code"></pre>
-                </div>
-
-                <div class="result-section">
-                    <h3>📋 Data Table</h3>
-                    <div id="data-table" class="data-table"></div>
-                </div>
-            </div>
-
-            <div id="error-container" class="error-container" style="display: none;">
-                <h3>❌ Error</h3>
-                <div id="error-message" class="error-message"></div>
-                <pre id="error-sql" class="sql-code" style="display: none;"></pre>
-            </div>
-
-            <div id="schema-container" class="schema-container" style="display: none;">
-                <h3>📚 Database Schema</h3>
-                <button onclick="hideSchema()" class="close-button">Close</button>
-                <pre id="schema-content" class="schema-content"></pre>
+            <div class="control-buttons">
+                <button id="schema-button" onclick="showSchema()">View Schema</button>
+                <button id="new-chat-button" onclick="startNewConversation()">New Chat</button>
             </div>
         </div>
 
-        <div class="examples">
-            <h4>💡 Example Questions:</h4>
-            <div class="example-buttons">
-                <button onclick="setQuestion('Show me all customers')">Show all customers</button>
-                <button onclick="setQuestion('How many orders were placed last month?')">Orders last month</button>
-                <button onclick="setQuestion('What are the top 5 products by price?')">Top 5 products</button>
-                <button onclick="setQuestion('Show total revenue by category')">Revenue by category</button>
+        <div class="chat-layout">
+            <div class="chat-window">
+                <div id="chat-messages" class="chat-messages"></div>
             </div>
+            <div class="composer">
+                <textarea
+                    id="question-input"
+                    placeholder="Ask a question about your data (e.g., 'Top 10 customers by revenue last quarter')..."
+                    rows="3"
+                ></textarea>
+                <div class="composer-actions">
+                    <div id="loading" class="loading" style="display: none;">
+                        <div class="spinner"></div>
+                        <span>Thinking, generating SQL, and querying...</span>
+                    </div>
+                    <div class="composer-buttons">
+                        <button id="submit-button" onclick="submitQuery()">Send</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="schema-container" class="schema-container" style="display: none;">
+            <h3>📚 Database Schema</h3>
+            <button onclick="hideSchema()" class="close-button">Close</button>
+            <pre id="schema-content" class="schema-content"></pre>
         </div>
     </div>
 
     <script>
         let conversationId = null;
         let storageBackend = 'memory';
+        let messages = [];
+        let pendingUserMessageId = null;
 
         document.addEventListener('DOMContentLoaded', () => {
-            // Submit query on Enter (Shift+Enter for new line)
             document.getElementById('question-input').addEventListener('keydown', function(e) {
                 if (e.key === 'Enter' && !e.shiftKey) {
                     e.preventDefault();
                     submitQuery();
                 }
             });
-
             startNewConversation();
         });
+
+        function renderMessages() {
+            const container = document.getElementById('chat-messages');
+            container.innerHTML = '';
+            messages.forEach((msg, idx) => {
+                const wrapper = document.createElement('div');
+                wrapper.className = `message ${msg.role}`;
+
+                const bubble = document.createElement('div');
+                bubble.className = 'bubble';
+
+                const content = document.createElement('div');
+                content.className = 'text';
+                content.textContent = msg.text;
+                bubble.appendChild(content);
+
+                if (msg.intent === 'chitchat') {
+                    bubble.classList.add('chitchat');
+                }
+
+                if (msg.intent === 'clarification_needed') {
+                    bubble.classList.add('clarification');
+                }
+
+                if (msg.sql || msg.table || (msg.steps && msg.steps.length)) {
+                    const details = document.createElement('details');
+                    const summary = document.createElement('summary');
+                    summary.textContent = 'Show SQL & results';
+                    details.appendChild(summary);
+
+                    const meta = document.createElement('div');
+                    meta.className = 'meta-block';
+                    meta.innerHTML = `
+                        ${msg.plan_type ? `<div class="pill">plan: ${msg.plan_type}</div>` : ''}
+                        ${typeof msg.row_count === 'number' ? `<div class="pill">rows: ${msg.row_count}</div>` : ''}
+                    `;
+                    details.appendChild(meta);
+
+                    if (msg.sql) {
+                        const sqlBlock = document.createElement('pre');
+                        sqlBlock.className = 'sql-code';
+                        sqlBlock.textContent = msg.sql;
+                        details.appendChild(sqlBlock);
+                    }
+
+                    if (msg.steps && msg.steps.length) {
+                        msg.steps.forEach(step => {
+                            const stepDiv = document.createElement('div');
+                            stepDiv.className = 'step-block';
+                            stepDiv.innerHTML = `
+                                <div class="step-header"><strong>${step.id}</strong> — ${step.objective || ''}</div>
+                                ${step.sql ? `<pre class="sql-code">${step.sql}</pre>` : ''}
+                                ${step.table ? `<div class="data-table">${step.table}</div>` : ''}
+                            `;
+                            details.appendChild(stepDiv);
+                        });
+                    } else if (msg.table) {
+                        const tableDiv = document.createElement('div');
+                        tableDiv.className = 'data-table';
+                        tableDiv.innerHTML = msg.table;
+                        details.appendChild(tableDiv);
+                    }
+
+                    bubble.appendChild(details);
+                }
+
+                wrapper.appendChild(bubble);
+                container.appendChild(wrapper);
+            });
+            container.scrollTop = container.scrollHeight;
+        }
+
+        function appendMessage(message) {
+            messages.push(message);
+            renderMessages();
+        }
 
         async function startNewConversation(topic = null) {
             try {
@@ -104,19 +153,21 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ topic })
                 });
-
                 const data = await response.json();
-
                 if (data.status !== 'success') {
                     throw new Error(data.error || 'Unable to start a new chat');
                 }
-
                 conversationId = data.conversation_id;
                 storageBackend = data.storage || 'memory';
-                resetUiForNewChat();
+                messages = [];
+                renderMessages();
                 updateConversationMeta();
+                document.getElementById('question-input').value = '';
             } catch (error) {
-                displayError({ error: `Failed to create new chat: ${error.message}` });
+                appendMessage({
+                    role: 'assistant',
+                    text: `Failed to create new chat: ${error.message}`,
+                });
             }
         }
 
@@ -124,10 +175,6 @@
             if (conversationId) return conversationId;
             await startNewConversation();
             return conversationId;
-        }
-
-        function setQuestion(text) {
-            document.getElementById('question-input').value = text;
         }
 
         async function submitQuery() {
@@ -141,16 +188,13 @@
 
             await ensureConversation();
 
-            // Hide previous results/errors
-            document.getElementById('results-container').style.display = 'none';
-            document.getElementById('error-container').style.display = 'none';
-            document.getElementById('schema-container').style.display = 'none';
+            const userMessage = { role: 'user', text: question };
+            appendMessage(userMessage);
+            input.value = '';
 
-            // Show loading
             document.getElementById('loading').style.display = 'flex';
             document.getElementById('submit-button').disabled = true;
 
-            // Submit query
             fetch('/query', {
                 method: 'POST',
                 headers: {
@@ -166,52 +210,64 @@
                 document.getElementById('loading').style.display = 'none';
                 document.getElementById('submit-button').disabled = false;
 
+                if (data.conversation_id) {
+                    conversationId = data.conversation_id;
+                    updateConversationMeta();
+                }
+
                 if (data.status === 'success') {
-                    displayResults(data);
+                    handleAssistantResponse(data);
                 } else {
-                    displayError(data);
+                    appendMessage({
+                        role: 'assistant',
+                        text: data.error || 'An unknown error occurred',
+                        sql: data.sql || '',
+                        intent: 'error',
+                    });
                 }
             })
             .catch(error => {
                 document.getElementById('loading').style.display = 'none';
                 document.getElementById('submit-button').disabled = false;
-                displayError({ error: error.message });
+                appendMessage({
+                    role: 'assistant',
+                    text: error.message,
+                    intent: 'error',
+                });
             });
         }
 
-        function displayResults(data) {
-            if (data.conversation_id) {
-                conversationId = data.conversation_id;
-                updateConversationMeta();
+        function handleAssistantResponse(data) {
+            // multi-query path
+            if (data.plan_type === 'multi_query' && Array.isArray(data.steps)) {
+                const steps = data.steps.map(step => ({
+                    id: step.step || step.id || '',
+                    objective: step.objective || '',
+                    sql: step.sql || '',
+                    table: step.table || '',
+                }));
+                appendMessage({
+                    role: 'assistant',
+                    text: data.question || 'Multi-step plan executed.',
+                    plan_type: 'multi_query',
+                    steps,
+                });
+                return;
             }
 
-            document.getElementById('explanation').textContent = data.explanation;
-            document.getElementById('sql-query').textContent = data.sql;
-            document.getElementById('data-table').innerHTML = data.table;
-            document.getElementById('results-container').style.display = 'block';
-        }
-
-        function displayError(data) {
-            if (data.conversation_id) {
-                conversationId = data.conversation_id;
-                updateConversationMeta();
-            }
-
-            document.getElementById('error-message').textContent = data.error || 'An unknown error occurred';
-
-            if (data.sql) {
-                document.getElementById('error-sql').textContent = data.sql;
-                document.getElementById('error-sql').style.display = 'block';
-            } else {
-                document.getElementById('error-sql').style.display = 'none';
-            }
-
-            document.getElementById('error-container').style.display = 'block';
+            appendMessage({
+                role: 'assistant',
+                text: data.explanation || data.error || 'Done.',
+                sql: data.sql || '',
+                table: data.table || '',
+                plan_type: data.plan_type || 'single',
+                row_count: data.row_count,
+                intent: data.intent,
+            });
         }
 
         function showSchema() {
             document.getElementById('schema-container').style.display = 'block';
-
             if (!document.getElementById('schema-content').textContent) {
                 fetch('/schema')
                     .then(response => response.json())
@@ -235,13 +291,6 @@
         function updateConversationMeta() {
             document.getElementById('conversation-id').textContent = conversationId || '—';
             document.getElementById('storage-badge').textContent = storageBackend || 'memory';
-        }
-
-        function resetUiForNewChat() {
-            document.getElementById('question-input').value = '';
-            document.getElementById('results-container').style.display = 'none';
-            document.getElementById('error-container').style.display = 'none';
-            document.getElementById('schema-container').style.display = 'none';
         }
     </script>
 </body>

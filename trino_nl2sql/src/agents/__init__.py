@@ -2,5 +2,6 @@ from .planning_agent import PlanningAgent
 from .sql_builder_agent import SQLBuilderAgent
 from .sql_validator_agent import SQLValidatorAgent
 from .sql_executor_agent import SQLExecutorAgent
+from .intent_classifier import IntentClassifier
 
-__all__ = ["PlanningAgent", "SQLBuilderAgent", "SQLValidatorAgent", "SQLExecutorAgent"]
+__all__ = ["PlanningAgent", "SQLBuilderAgent", "SQLValidatorAgent", "SQLExecutorAgent", "IntentClassifier"]

@@ -7,7 +7,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 from langchain_openai import AzureChatOpenAI
 from schema_loader import SchemaLoader
-from agents import PlanningAgent, SQLBuilderAgent, SQLValidatorAgent
+from agents import PlanningAgent, SQLBuilderAgent, SQLValidatorAgent, IntentClassifier
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +43,7 @@ class SQLGenerator:
         self.planner = PlanningAgent(self.llm)
         self.sql_builder = SQLBuilderAgent(self.llm)
         self.validator = SQLValidatorAgent(self.sql_builder)
+        self.intent_classifier = IntentClassifier(self.llm)
 
     def _load_env(self):
         """Load environment variables"""
@@ -143,6 +144,14 @@ class SQLGenerator:
         except Exception as e:
             logger.error(f"Error generating SQL: {e}")
             raise
+
+    def classify_intent(self, question: str):
+        """Classify the user input before attempting SQL generation."""
+        try:
+            return self.intent_classifier.classify(question)
+        except Exception as e:
+            logger.warning("Intent classification failed, defaulting to data_query: %s", e)
+            return {"intent": "data_query", "follow_up": ""}
 
 
     def _parse_catalog_schema(self, database: str):
